@@ -19,7 +19,7 @@ var (
 	database = "test"
 )
 
-func main() {
+func main1() {
 	dns := fmt.Sprintf("%s:%s@tcp(%s)/%s", user, password, host, database)
 	driver, err := sql.Open("mysql", dns)
 	if err != nil {

@@ -1,0 +1,18 @@
+{
+    "registry":{
+        "servers":[
+            "127.0.0.1:4001",
+            "172.16.127.37:4001"
+        ],
+        "heartbeat_interval_in_second":10,
+        "heartbeat_timeout_round":2
+    },
+    "proxy":{
+        "http_proxy_dial_timeout_in_millisecond":1000,
+        "http_proxy_io_timeout_in_second":300
+    },
+    "metrics":{
+        "report_interval_in_second":60,
+        "report_agent_address":"127.0.0.1:4000"
+    }
+} 
