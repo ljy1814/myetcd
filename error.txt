@@ -1,0 +1,1 @@
+ERRO[0266] err[Error 1040: Too many connections]  https://stackoverflow.com/questions/28135580/golang-mysql-error-1040-too-many-connections
