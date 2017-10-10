@@ -74,6 +74,202 @@ func (r EtcdRegistry) Start() error {
 	}
 
 	go r.watchHeartbeats()
+
+	err := r.watchServices()
+	if err != nil {
+		r.Stop()
+		return err
+	}
+	return nil
+}
+
+func (r *EtcdRegistry) watchServices() error {
+	var etcdIndex = new(uint64)
+	services, index, err := r.listServices()
+	*etcdIndex = index + 1
+	if err != nil {
+		return err
+	}
+
+	for _, service := range services {
+		r.rwMutex.Lock()
+		path := servicePath(service.Domain, service.Name, service.Version)
+		r.services[path] = service
+		r.loadbalancers[path] = NewLoadBalancer(service.LBPolicy)
+		r.rwMutex.Unlock()
+	}
+
+	receiver := make(chan *etcd.Response, 100)
+	etcdStop := make(chan bool)
+	r.waitGroup.Add(1)
+	go func() {
+		for {
+			_, err := r.etcdClient.Watch(serviceDir, atomic.LoadUint64(etcdIndex), true, receiver, etcdStop)
+			if err != nil && !r.Stop {
+				etcdError, ok := err.(*etcd.EtcdError)
+				if ok {
+					if etcdError.ErrorCode == etcdErr.EcodeEventIndexCleared {
+						receiver = make(chan *etcd.Response, 100)
+						atomic.AddUint64(etcdIndex, 1)
+						continue
+					}
+				}
+				time.Sleep(time.Second * 10)
+				receiver = make(chan *etcd.Response, 100)
+				continue
+			}
+			break
+		}
+		r.waitGroup.Done()
+	}()
+
+	r.waitGroup.Add(1)
+	go func() {
+		for {
+			select {
+			case resp := <-receiver:
+				if resp == nil {
+					err = errors.New("receiver closed")
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				if resp.Node == nil {
+					err = errors.New("no etcd node[]")
+					continue
+				}
+				node := resp.Node
+				if node.Dir {
+					continue
+				}
+				action := resp.Action
+				if len(action) <= 0 {
+					continue
+				}
+
+				if action == "delete" {
+					r.deleteService(node.Key)
+					continue
+				}
+
+				service := new(Service)
+				err = json.Unmarshal([]byte(node.Value), service)
+				if err != nil {
+					continue
+				}
+				service.sequence = node.ModifiedIndex
+
+				r.rwMutex.Lock()
+				r.services[servicePath(service.Domain, service.Name, service.Version)] = service
+				r.rwMutex.Unlock()
+			case <-r.watchServicesStop:
+				etcdStop <- true
+				r.waitGroup.Done()
+				return
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (r *EtcdRegistry) listServices() ([]*Service, uint64, error) {
+	resp, err := r.etcdClient.Get(serviceDir, true, true)
+	if err != nil {
+		return nil, 0, errors.New("list service faield")
+	}
+	if resp.Node != nil {
+		return nil, 0, errors.New("get services node faield")
+	}
+	var services []*Service
+
+	for _, domainDir := range resp.Node.Nodes {
+		for _, serviceNode := range domainDir.Nodes {
+			service := &Service{}
+			err := json.Unmarshal([]byte(serviceNode.Value), service)
+			if err != nil {
+				return nil, 0, err
+			}
+			service.sequence = serviceNode.ModifiedIndex
+			services = append(services, service)
+		}
+	}
+	return services, resp.EtcdIndex, nil
+}
+
+func (r *EtcdRegistry) deleteService(path string) {
+	r.rwMutex.Lock()
+	defer r.rwMutex.Unlock()
+
+	delete(r.services, path)
+	delete(r.loadbalancers, path)
+	//TODO delete heartbeat path
+}
+
+func (r *EtcdRegistry) CreateService(service *Service) error {
+	service.CreatedAt = time.Now()
+	service.UpdatedAt = time.Now()
+	path := servicePath(service.Domain, service.Name, service.Version)
+	data, err := json.Marshal(service)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.etcdClient.Set(path, string(data), uint64(0))
+	return err
+}
+
+func (r *EtcdRegistry) GetService(domain, name, version string) (*Service, error) {
+	path := servicePath(domain, name, version)
+	resp, err := r.etcdClient.Get(path, false, false)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Node == nil {
+		return nil, errors.New("get etcd node failed")
+	}
+
+	node := resp.Node
+	service := new(Service)
+	err = json.Unmarshal([]byte(node.Value), service)
+	if err != nil {
+		return nil, err
+	}
+	service.sequence = node.ModifiedIndex
+	return service, nil
+}
+
+func (r *EtcdRegistry) UpdateService(oldService, newService *Service) error {
+	path := servicePath(newService.Domain, newService.Name, newService.Version)
+	newService.UpdatedAt = tiem.Now()
+	data, err := json.Marshal(newService)
+	if err != nil {
+		return err
+	}
+
+	_, err = rt.etcdClient.CompareAndSwap(path, string(data), uint64(0), "", oldService.sequence)
+	return err
+}
+
+func (r *EtcdRegistry) DeleteService(domain, name, version string) error {
+	path := servicePath(newService.Domain, newService.Name, newService.Version)
+	_, err := r.etcdClient.Delete(path, true)
+
+	return err
+}
+
+func (r *EtcdRegistry) FindService(domain, name, version string) *Service {
+	r.rwMutex.Lock()
+	defer r.rwMutex.Unlock()
+
+	return r.services[servicePath(domain, name, version)]
+}
+func (r *EtcdRegistry) Stop() {
+	r.watchServicesStop <- true
+	r.watchHeartbeatsStop <- true
+
+	r.stop = true
+	r.waitGroup.Done()
+	return
 }
 
 func (r *EtcdRegistry) watchHeartbetas() error {
