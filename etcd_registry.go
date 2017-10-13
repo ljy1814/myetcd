@@ -437,8 +437,155 @@ func (r *EtcdRegistry) resetHeartbeats(heartbeats map[string][]*Heartbeat) {
 	r.heartbeats = heartbeats
 }
 
+func (r *EtcdRegistry) RegisterEndpoint(domain, serviceName, version, addr string, delegateMode bool) (*Service, error) {
+	service, err := r.GetService(domain, serviceName, version)
+	if service == nil {
+	}
+	if err != nil {
+		return service, err
+	}
+	err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
+	if err != nil {
+		return service, err
+	}
+
+	// platform
+	if delegateMode {
+		return service, nil
+	}
+
+	path := heartbeatPath(domain, serviceName, version, addr)
+	stop := make(chan bool)
+
+	r.rwMutex.Lock()
+	r.heartbeatsStops[path] = stop
+	r.rwMutex.Unlock()
+	err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
+	if err != nil {
+
+	}
+
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+				// 定时检测心跳
+			case <-time.After(time.Duration(r.defaultHeartbeatIntervalInSecond) * time.Second):
+				err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
+				if err != nil {
+
+				}
+			}
+		}
+	}()
+
+	return service, err
+}
+
+func (r *EtcdRegistry) UnregisterEndpoint(domain, serviceName, version, addr string, delegateMode bool) error {
+	path := heartbeatPath(domain, serviceName, version, addr)
+	if !delegateMode {
+		r.rwMutex.Lock()
+		stop := r.heartbeatsStops[path]
+		if stop == nil {
+			r.rwMutex.Unlock()
+			return nil
+		}
+		stop <- true
+		delete(r.heartbeatsStops, path)
+		r.rwMutex.Unlock()
+	}
+
+	_, err := r.etcdClient.Delete(path, true)
+	return err
+}
+
+func (r *EtcdRegistry) RefreshEndpoint(domain, serviceName, version, addr string, timeout uint64) error {
+	path := heartbeatPath(domain, serviceName, version, addr)
+	heartbeat := &Heartbeat{
+		Domain:  domain,
+		Service: serviceName,
+		Version: version,
+		Addr:    addr,
+	}
+	payload, err := json.Marshal(heartbeat)
+	if err != nil {
+		return err
+	}
+
+	if timeout > uint64(time.Second) {
+		timeout = timeout / uint64(time.Second)
+	} else {
+		timeout = uint64(r.defaultHeartbeatTimeoutRound * r.defaultHeartbeatIntervalInSecond)
+	}
+	_, err = r.etcdClient.Set(path, string(payload), timeout)
+	return err
+}
+
+func (r *EtcdRegistry) DeleteEndpoint(domain, serviceName, version, addr string) error {
+	hb := &Heartbeat{Domain: domain, Service: serviceName, Version: version, Addr: addr}
+	if hb == nil {
+		return errors.New("gen heartbeat faailed")
+	}
+	r.deleteHeartbeat(hb)
+
+	return nil
+}
+
+func (r *EtcdRegistry) GetEndpoint(domain, serviceName, version string) (string, error) {
+	path := servicePath(domain, serviceName, version)
+	var addrs []string
+	r.rwMutex.Lock()
+	defer r.rwMutex.Unlock()
+
+	service := r.services[path]
+	if service == nil {
+		return "", errors.New("service not exist")
+	}
+
+	lb := r.loadbalancers[path]
+	if lb == nil {
+		return "", errors.New("loadbalance not exist")
+	}
+
+	heartbeats := r.heartbeats[path]
+	endpoints := service.Endpoints
+	if len(heartbeats) <= 0 {
+		return "", errors.New("no endpoints")
+	}
+
+	for _, hb := range heartbeats {
+		if len(endpoints) > 0 {
+			ep := endpoints[hb.Addr]
+			if er != nil && ep.Status == EndpointStatusNormal {
+				addrs = append(addrs, ep.Addr)
+			}
+		} else {
+			addrs = append(addrs, hb.Addr)
+		}
+	}
+
+	if len(addrs) > 0 {
+		addr := lb.GetEndpoint(path, addrs)
+		if len(endpoints) > 0 {
+			selectEndpoint := endpoints[addr]
+			if selectEndpoint == nil {
+				return "", errors.New("get select endpoint faield")
+			}
+		}
+		return addr, nil
+	}
+
+	return "", errors.New("get endpoint failed")
+}
+
 func servicePath(domain, service, version string) string {
 	return "/etcd/services/" + domain + "/" + service + "_" + version
+}
+
+func heartbeatPath(domain, service, version, endpointAddr string) string {
+	return "/etcd/heartbeats/" + domain + "/" + service + "_" + version + "/" + endpointAddr
 }
 
 /* vim: set tabstop=4 set shiftwidth=4 */
