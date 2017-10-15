@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	etcd "github.com/cores/go-etcd"
+	"github.com/coreos/go-etcd/etcd"
+	"github.com/fatih/color"
 )
 
 /*
@@ -68,22 +69,26 @@ func (r *EtcdRegistry) Sync() error {
 }
 
 func (r EtcdRegistry) Start() error {
+	color.Red("enter start .....\n")
 	err := r.Sync()
 	if err != nil {
 		panic(err)
 	}
+	color.Green("sync cluster ok...\n")
 
 	go r.watchHeartbeats()
 
-	err := r.watchServices()
+	err = r.watchServices()
 	if err != nil {
 		r.Stop()
 		return err
 	}
+	color.Yellow("leave start...\n")
 	return nil
 }
 
 func (r *EtcdRegistry) watchServices() error {
+	color.Blue("enter watchServices....\n")
 	var etcdIndex = new(uint64)
 	services, index, err := r.listServices()
 	*etcdIndex = index + 1
@@ -103,12 +108,13 @@ func (r *EtcdRegistry) watchServices() error {
 	etcdStop := make(chan bool)
 	r.waitGroup.Add(1)
 	go func() {
+		color.Green("in watchservice loop")
 		for {
 			_, err := r.etcdClient.Watch(serviceDir, atomic.LoadUint64(etcdIndex), true, receiver, etcdStop)
-			if err != nil && !r.Stop {
+			if err != nil && !r.stop {
 				etcdError, ok := err.(*etcd.EtcdError)
 				if ok {
-					if etcdError.ErrorCode == etcdErr.EcodeEventIndexCleared {
+					if etcdError.ErrorCode == EcodeEventIndexCleared {
 						receiver = make(chan *etcd.Response, 100)
 						atomic.AddUint64(etcdIndex, 1)
 						continue
@@ -125,6 +131,7 @@ func (r *EtcdRegistry) watchServices() error {
 
 	r.waitGroup.Add(1)
 	go func() {
+		color.Red("in service receiver....\n")
 		for {
 			select {
 			case resp := <-receiver:
@@ -145,7 +152,7 @@ func (r *EtcdRegistry) watchServices() error {
 				if len(action) <= 0 {
 					continue
 				}
-
+				color.Blue("watch service action: %v  , node : %v\n", action, node)
 				if action == "delete" {
 					r.deleteService(node.Key)
 					continue
@@ -169,19 +176,25 @@ func (r *EtcdRegistry) watchServices() error {
 		}
 	}()
 
+	color.Yellow("leave service...\n")
 	return nil
 }
 
 func (r *EtcdRegistry) listServices() ([]*Service, uint64, error) {
+	color.Red("enter listServices...\n")
 	resp, err := r.etcdClient.Get(serviceDir, true, true)
+	color.Blue("etcd get resp : %v, err[%v]\n", resp, err)
 	if err != nil {
 		return nil, 0, errors.New("list service faield")
 	}
-	if resp.Node != nil {
+	color.Yellow("resp nodes : %v\n", resp.Node)
+	if resp.Node == nil {
 		return nil, 0, errors.New("get services node faield")
 	}
+	color.Red("hhhhhhhhh\n")
 	var services []*Service
 
+	color.Yellow("resp nodes : %v\n", resp.Node.Nodes)
 	for _, domainDir := range resp.Node.Nodes {
 		for _, serviceNode := range domainDir.Nodes {
 			service := &Service{}
@@ -193,6 +206,7 @@ func (r *EtcdRegistry) listServices() ([]*Service, uint64, error) {
 			services = append(services, service)
 		}
 	}
+	color.Red("leave listServices...\n")
 	return services, resp.EtcdIndex, nil
 }
 
@@ -240,18 +254,18 @@ func (r *EtcdRegistry) GetService(domain, name, version string) (*Service, error
 
 func (r *EtcdRegistry) UpdateService(oldService, newService *Service) error {
 	path := servicePath(newService.Domain, newService.Name, newService.Version)
-	newService.UpdatedAt = tiem.Now()
+	newService.UpdatedAt = time.Now()
 	data, err := json.Marshal(newService)
 	if err != nil {
 		return err
 	}
 
-	_, err = rt.etcdClient.CompareAndSwap(path, string(data), uint64(0), "", oldService.sequence)
+	_, err = r.etcdClient.CompareAndSwap(path, string(data), uint64(0), "", oldService.sequence)
 	return err
 }
 
 func (r *EtcdRegistry) DeleteService(domain, name, version string) error {
-	path := servicePath(newService.Domain, newService.Name, newService.Version)
+	path := servicePath(domain, name, version)
 	_, err := r.etcdClient.Delete(path, true)
 
 	return err
@@ -272,7 +286,8 @@ func (r *EtcdRegistry) Stop() {
 	return
 }
 
-func (r *EtcdRegistry) watchHeartbetas() error {
+func (r *EtcdRegistry) watchHeartbeats() error {
+	color.Yellow("enter watchHeartbeats....\n")
 loop:
 	var etcdIndex = new(uint64)
 	heartbeatList, index, err := r.listHeartbeats()
@@ -317,6 +332,7 @@ loop:
 			if node.Dir {
 				continue
 			}
+			color.Green("heartbeat action : %v , node: %v\n", action, node)
 
 			if action == "delete" || action == "expire" {
 				var heartbeat *Heartbeat
@@ -347,7 +363,7 @@ loop:
 					r.deleteHeartbeat(heartbeat)
 				}
 			} else {
-				heartbeat = new(Heartbeat)
+				heartbeat := new(Heartbeat)
 				err := json.Unmarshal([]byte(node.Value), heartbeat)
 				if err != nil {
 
@@ -355,6 +371,7 @@ loop:
 				r.addHeartbeat(heartbeat)
 			}
 		}
+		color.Yellow("start done check\n")
 		watchErr := <-watchDone
 		if e, ok := watchErr.(*etcd.EtcdError); ok && e.ErrorCode == 401 {
 			time.Sleep(time.Second * 10)
@@ -368,6 +385,7 @@ loop:
 			return nil
 		default:
 		}
+		color.Red("next watch heartbeat loop...\n")
 	}
 }
 
@@ -387,10 +405,11 @@ func (r *EtcdRegistry) listHeartbeats() ([]*Heartbeat, uint64, error) {
 				heartbeat := &Heartbeat{}
 				err = json.Unmarshal([]byte(heartbeatNode.Value), heartbeat)
 				if err != nil {
+					heartbeats = append(heartbeats, heartbeat)
 					return nil, uint64(0), err
 				}
+				heartbeats = append(heartbeats, heartbeat)
 			}
-			heartbeats = append(heartbeats, heartbeat)
 		}
 	}
 	return heartbeats, resp.EtcdIndex, nil
@@ -428,6 +447,7 @@ func (r *EtcdRegistry) addHeartbeat(heartbeat *Heartbeat) {
 
 	r.rwMutex.Lock()
 	r.heartbeats[path] = append(r.heartbeats[path], heartbeat)
+	color.Blue("heartbeats[%v] : %v\n", path, r.heartbeats[path][0])
 	r.rwMutex.Unlock()
 }
 
@@ -440,12 +460,15 @@ func (r *EtcdRegistry) resetHeartbeats(heartbeats map[string][]*Heartbeat) {
 func (r *EtcdRegistry) RegisterEndpoint(domain, serviceName, version, addr string, delegateMode bool) (*Service, error) {
 	service, err := r.GetService(domain, serviceName, version)
 	if service == nil {
+		return service, errors.New("service is nil")
 	}
+	color.Red("service : %v, err[%v]\n", service, err)
 	if err != nil {
 		return service, err
 	}
 	err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
 	if err != nil {
+		color.Red("RefreshEndpoint err[%v]\n", err)
 		return service, err
 	}
 
@@ -462,7 +485,7 @@ func (r *EtcdRegistry) RegisterEndpoint(domain, serviceName, version, addr strin
 	r.rwMutex.Unlock()
 	err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
 	if err != nil {
-
+		color.Red("RefreshEndpoint err[%v]\n", err)
 	}
 
 	go func() {
@@ -474,7 +497,7 @@ func (r *EtcdRegistry) RegisterEndpoint(domain, serviceName, version, addr strin
 			case <-time.After(time.Duration(r.defaultHeartbeatIntervalInSecond) * time.Second):
 				err = r.RefreshEndpoint(domain, serviceName, version, addr, uint64(time.Duration(r.defaultHeartbeatIntervalInSecond*r.defaultHeartbeatTimeoutRound)*time.Second))
 				if err != nil {
-
+					color.Red("RefreshEndpoint err[%v]\n", err)
 				}
 			}
 		}
@@ -558,7 +581,7 @@ func (r *EtcdRegistry) GetEndpoint(domain, serviceName, version string) (string,
 	for _, hb := range heartbeats {
 		if len(endpoints) > 0 {
 			ep := endpoints[hb.Addr]
-			if er != nil && ep.Status == EndpointStatusNormal {
+			if ep != nil && ep.Status == EndpointStatusNormal {
 				addrs = append(addrs, ep.Addr)
 			}
 		} else {

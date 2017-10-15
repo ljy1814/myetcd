@@ -42,9 +42,30 @@ type Endpoint struct {
 	MsgFreezes     []*EndpointMsgFreeze `json:"msg_freezes,omitempty"`
 }
 
+type EndpointMsgFreeze struct {
+	MsgName    string
+	ExpireTime time.Time
+}
+
 const (
 	EndpointStatusNormal  = "normal"
 	EndpointStatusFreezed = "freezed"
+
+	EcodeWatcherCleared     = 400
+	EcodeEventIndexCleared  = 401
+	EcodeStandbyInternal    = 402
+	EcodeInvalidActiveSize  = 403
+	EcodeInvalidRemoveDelay = 404
+	HttpService             = "http"
+	TcpService              = "tcp"
+
+	RoundRobinLoadBalance = "roundrobin"
+	RandomLoadBalance     = "random"
+	DefaultLBPolicy       = RoundRobinLoadBalance
+
+	DefaultRetryTimes      = uint8(2)
+	DefaultDialTimeout     = time.Millisecond * 200
+	DefaultEndpointTimeout = time.Second * 10
 )
 
 /* vim: set tabstop=4 set shiftwidth=4 */

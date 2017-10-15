@@ -1,8 +1,7 @@
 {
     "registry":{
         "servers":[
-            "127.0.0.1:4001",
-            "172.16.127.37:4001"
+            "http://127.0.0.1:2379"
         ],
         "heartbeat_interval_in_second":10,
         "heartbeat_timeout_round":2
@@ -13,6 +12,6 @@
     },
     "metrics":{
         "report_interval_in_second":60,
-        "report_agent_address":"127.0.0.1:4000"
+        "report_agent_address":"127.0.0.1:2380"
     }
 } 

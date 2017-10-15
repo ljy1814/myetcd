@@ -1,4 +1,4 @@
-package main
+package myetcd
 
 import (
 	"encoding/json"
@@ -8,12 +8,12 @@ import (
 type EConfig struct {
 	serviceMap        map[string][]string //服务端口映射表
 	servicePartitions map[string]map[uint64]string
-	Registry          `json:"registry"`
+	CRegistry          `json:"registry"`
 	Proxy             `json:"proxy"`
 	Metrics           `json:"metrics"`
 }
 
-type Registry struct {
+type CRegistry struct {
 	Servers                   []string `json:"servers"`
 	HeartbeatInternalInSecond int      `json:"heartbeat_interval_in_second"`
 	HeartbeatTimeoutRound     int      `json:"heartbeat_timeout_round"`
