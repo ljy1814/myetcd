@@ -22,93 +22,85 @@
     - router
         - getToken
 
-
-##### 接口分析
-- registerDevice
-    - 开发者调用,注册设备
-    - 普通用户调用则绑定设备
-- registerDevices
-    - 产品维度的公钥私钥
-    - 产品信息
-    - device_warehouse  // 注册
-    - device_record // 激活
-- getPublicKey
-    - key NullString
-- getDeviceLogicalId
-    - device_atom　//　存逻辑id,物理id
-- deviceHeartbeat
-    - device_record
-- activateDevice
-    - event 打印到日志,而后再由日志处理器处理,发给消息队列
-    - 短链激活,内部激活(不分配token)
-
-
-内部激活
-    设备不存在
-        新增一条激活数据
-    设备已存在
-        更新设备激活数据
-
-外部激活
-    短链,校验签名,设备授权
-    设备尚未被激活
-        激活不存在的设备,分配token
-    设备曾经激活过
-        设备是长连接激活则token不存在
-        token存在则直接返回token
-        否则执行激活操作,分配token
-
-反激活
-    修改激活状态
-
-设备信息
-    设备记录与属性
-
-设备授权
-    根据产品的授权模式分别验证
-    白名单
-        检查设备gid是否在白名单里面
-        不是则检查设备的状态是否为导入,device_record,激活更改状态
-        第一次认证但未导入白名单
-更改设备属性
-    设备自身通过inner service更新
-    开发者更新
-
-设备下线
-    更新心跳
-
-
 #### 重点模块
 - 入库
     - registerDevice
         - 直接卖出没有激活
+        - 开发者调用,注册设备,bind调用用于开发者绑定设备
+        - 普通用户调用则绑定设备
     - registerDevices
+        - 产品维度的公钥私钥
+        - 产品信息
+        - device_warehouse  // 密钥授权
+        - device_record // 激活
     - listStock
+        - 设备列表,包括key,record
     - stockStatistics
+        -统计信息,包括设备数量,配额,激活数量
     - applyRegistDevice
+        - 获取批次,弃用
     - listDevices
+        - 列出设备,包含在线状态
 - 设备激活
     - activateDevice
+        - event 打印到日志,而后再由日志处理器处理,发给消息队列
+        - 短链激活,内部激活(不分配token)
+        - 内部激活,gateway
+            - 设备不存在
+                - 新增一条激活数据
+            - 设备已存在
+                - 更新设备激活数据
+
+        - 外部激活
+            - 短链,校验签名,设备授权
+            - 设备尚未被激活
+                - 激活不存在的设备,分配token
+            - 设备曾经激活过
+                - 设备是长连接激活则token不存在
+                - token存在则直接返回token
+                - 否则执行激活操作,分配token
     - antiactivateDevice
+        - 设备不存在或者未激活则不需要反激活
+        - 保留认证状态,修改激活状态
 - 密钥管理
     - generateRsaKey
+        - 生成rsa公钥,烧进固件,用于gateway四次握手
     - generateAesKey
+        - 生成aes公钥
     - registerUnifiedKey
+        - 注册产品统一密钥
     - getUnifiedKey
+        - 获取产品统一密钥
 - token
     - getToken 
+        - 获取access,refresh token
     - getAccessToken
+        - 获取access token
     - getRefreshToken
+        - 获取refresh token
     - updateAccessToken
+        - 更新access token
 - 配额
     - createLicenseQuota
+        - 创建配额表并初始化
     - deleteLicenseQuota
+        - 删除配额数据
     - getLicenseQuota
+        - 获取配额
     - modifyQuota
+        - 修改配额,记录历史
     - getLicenseQuotaHistory
+        - 配额历史记录
     - getLicenseQuotaHistoryCount
+        - 配额历史记录数量
 - 设备授权
     - authDeviceLicense
+        - 设备授权
+            - 根据产品的授权模式分别验证
+            - 白名单
+                - 检查设备gid是否在白名单里面
+                - 不是则检查设备的状态是否为导入,device_record,激活更改状态
+                - 第一次认证但未导入白名单
 - 设备属性
     - getDeviceProperty
     - updateDeviceProperty
@@ -116,9 +108,11 @@
 #### 数据库表
 - 主域相关
     - domain_device_record
+        - 设备记录
     - domain_device_warehouse
+        - 设备身份鉴权信息
     - domain_device_atom
-    - domain_device_licenses
+        - 设备的物理ID与逻辑Id映射
     - domain_device_property
 - 配额相关
     - warehouse_licenses_quota
