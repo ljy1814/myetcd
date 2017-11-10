@@ -1,0 +1,94 @@
+1.registerDevice什么情况调用.
+2.warehouse_product_status 里面的status,type字段含义
+3.设备必须开启授权,白名单上报下发,   先入库后激活还是先激活后入库的问题
+4.不开白名单,测试环境,限制50配额  registerDevices
+
+已激活未导入,
+连接云端即激活
+5反激活什么场景，什么问题:工厂开机激活,inspire不认为用户使用,反激活抹掉激活状态，告知inspire.
+反激活,WiFi,ablecloudXXXX->工厂,云端deviceservice记住,云端感知下线时间(产侧状态下线),调用反激活.
+AP模式,
+
+
+6.配额问题,前段提示 导入设备,配额满了提示信息.成功数量,导入数量.
+7.listStock何处调用
+
+8.stockStatistics何处调用
+9.授权设备:以连过云端不在白名单,在白名单但为连过云端,在白名单且已经连过云端.
+10.applyRegistDevice接口使用场景
+
+11.APP列出设备,调用的那个接口,,,,bind自身的接口  listDevices 为何不调用warehouse的接口
+
+12.设备下线,heartbeat用途,心跳机制.  
+设备上报刷心跳,之前查长连接在不在,运营平台查询在线是否,长连接，上报刷心跳,拉长零率,刷最后一次刷心跳时间,通过此事件确认最后在线时间,未使用tcp自身的心跳.
+开了keepalive被路由器关闭.
+
+应用层保证keepalive,tcp不可靠
+一分钟发一次,一次4byte
+
+13.逻辑ID什么时候创建,  某个主域内,将物理ID映射成逻辑ID,保证不变.
+设备激活,将ip,mod,等等信息写入mysql
+
+激活刷心跳,更新频次需合理,  先上线在下线,     先连接A,云端未检测断开,后重新连接B,  刷心跳踢掉一个,误踢设备  瞬间上下线,并发乱     在线又重新登录
+notifyDeviceOffline何处调用
+
+
+14.短链激活,是否允许使用时间戳,  允许时间戳超时检测,时间不准,放宽时间戳检测,
+
+enableAuth,,配置里面的,
+长连接 四次握手,       短连接 token分配
+调用方不同,返回不同,拆分接口,
+长连激活gateway调用warehouse,短链激活直接发http
+gateway,设备   warehouse
+
+authDevice  err判断
+
+
+mysql insert  Lock ID   高并发场景重试newLogicalId   bind期望get但是可能是POST,get不到则变为POST
+
+15.productkey deviceKey,哪个优先
+第一批产品级秘钥,下一批设备级秘钥.
+
+
+16.邮件模板,,,,,审核
+模板何时使用,内容审核,敏感词限制,
+
+17.如何发邮件,   QQ,163,126  服务器白名单
+inform本身受监控,通过inform发送报警邮件
+sendEmail发邮件
+给客户提供的必须使用模板,
+走smtp被认为垃圾邮件,,,内部可控
+
+网络异常,error
+
+18.发邮件BUG
+群发短信,什么时候使用,  出错返回error,  继续发送
+
+BUG   sendSMSPhoneList,,,发送失败未setError
+
+19.常见业务场景
+群发,   友盟推送
+单发  发短信   邮件
+
+17.发邮件
+sendcloud  发国内   mailgun  发国外(成功率不高),非高可信IP,别人使用发垃圾邮件
+onlyUse,发送成功率
+sendcloud失败回调,
+
+
+通过userList批量发送邮件,不能超过50人,
+
+20.友盟流程已及平台交互流程
+友盟 getBody   domain->appKey   alias,alias_type -- device_token
+友盟发送批量限制,,,接口限制50
+type,,tag,,组发送
+
+友盟白名单,,,,发送来源有限制,,,调接口的机器也必须在白名单,
+注意:一个手机安装多个APP,有多个device-token,推送一个产品的信息,会找到所有的device-token,并推送给手机,这样手机就会收到多条消息。
+
+
+
+
+
+发邮件,王雷,
+    
